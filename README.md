@@ -64,3 +64,7 @@ pip install -r requirements.txt
 ## Hardware
 
 Developed and tested on an **NVIDIA RTX 5070 Ti** with CUDA.
+
+
+# Note
+The archieve contains all the previous nbs created by me; the Code base is organised by AI
