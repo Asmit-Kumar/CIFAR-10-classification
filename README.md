@@ -11,6 +11,17 @@ A collection of deep learning experiments on the [CIFAR-10](https://www.cs.toron
 | 3 | `03_resnet18.ipynb` | Custom ResNet-18 | 120 | Full ResNet with `_make_layer` |
 | 4 | `04_resnet34_transfer.ipynb` | Pre-trained ResNet-34 | 45 | Transfer learning from ImageNet |
 
+## Results
+
+| Model | Params | Val Acc | Test Acc | Epochs | Time/epoch |
+|---|---|---|---|---|---|
+| Plain CNN | ~958k | 89.99% | 89.82% | 80 | ~4.6s |
+| SimpleResNet | ~4.9M | 93.80% | 93.77% | 80 | ~4.1s |
+| ResNet-18 (custom) | ~11.2M | 95.70% | 95.22% | 120 | ~4.5s |
+| ResNet-34 (transfer) | ~21.3M | 97.67% | 97.43% | 45 | ~26.3s |
+
+> **Note on ResNet-34 Performance**: The transfer learning notebook upscales CIFAR-10's native 32×32 images to 224×224 to feed ResNet-34. While this is the correct approach, it means we are not comparing apples to apples — ResNet-34 fine-tuned this way has an "unfair advantage" from both pre-trained ImageNet features and a much bigger input resolution.
+
 ## Project Structure
 
 ```
@@ -64,7 +75,3 @@ pip install -r requirements.txt
 ## Hardware
 
 Developed and tested on an **NVIDIA RTX 5070 Ti** with CUDA.
-
-
-# Note
-The archieve contains all the previous nbs created by me; the Code base is organised by AI
