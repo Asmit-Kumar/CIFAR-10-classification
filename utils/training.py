@@ -10,6 +10,8 @@ Optional Features:
 """
 
 import inspect
+import math
+import sys
 import time
 from pathlib import Path
 
@@ -17,9 +19,20 @@ import numpy as np
 import torch
 
 
+def _progress_iter(iterable, enabled=False, **kwargs):
+    """Wrap an iterable in a plain tqdm progress bar when requested."""
+    if not enabled:
+        return iterable
+    try:
+        from tqdm import tqdm
+    except Exception:
+        return iterable
+    return tqdm(iterable, **kwargs)
+
+
 def _caller_log_dir() -> str:
     """
-    Walk the call stack to find the calling script or notebook name,
+    Walk the call stack or inspect system arguments to find the calling script or notebook name,
     then return an absolute log directory path derived from that file's stem.
     Logs are stored in a centralized directory at the repository root.
 
@@ -31,13 +44,26 @@ def _caller_log_dir() -> str:
     """
     utils_dir = Path(__file__).parent.resolve()
     project_root = utils_dir.parent
+
+    # 1. Quick Resolution: Standard Python script execution via CLI/IDE
+    in_jupyter = False
+    try:
+        main_file = Path(sys.argv[0]).resolve()
+        if main_file.stem in ['ipykernel_launcher', 'ipykernel']:
+            in_jupyter = True
+        elif main_file.is_file() and main_file.suffix == '.py':
+            return str(project_root / "logs" / main_file.stem)
+    except Exception:
+        pass
+
+    # 2. Walk the stack: Notebook environment or import-based run detection
     frame = inspect.currentframe()
     try:
         while frame is not None:
             fname  = frame.f_code.co_filename
             globs  = frame.f_globals
 
-            # ── Notebook detection (globals-based) ────────────────────────────
+            # Notebook detection (globals-based)
             # VS Code Jupyter injects __vsc_ipynb_file__ into every cell's globals
             vsc_nb = globs.get("__vsc_ipynb_file__")
             if vsc_nb:
@@ -48,23 +74,24 @@ def _caller_log_dir() -> str:
             if file_glob.endswith(".ipynb"):
                 return str(project_root / "logs" / Path(file_glob).stem)
 
-            # ── Filename-based detection ──────────────────────────────────────
-            # Newer kernels (JupyterLab ≥ 4, nbclient) set co_filename to the
-            # actual notebook path instead of <ipython-input-…>
+            # Filename-based detection
+            # Newer kernels (JupyterLab >= 4, nbclient) set co_filename to the actual notebook path
             if fname.endswith(".ipynb"):
                 return str(project_root / "logs" / Path(fname).stem)
 
             # Regular .py file outside this utils package
-            if (not fname.startswith("<")
-                    and utils_dir not in Path(fname).resolve().parents):
-                return str(project_root / "logs" / Path(fname).stem)
+            # (Skip entirely if we are in Jupyter, so we don't catch IDE temporary cell scripts)
+            if not in_jupyter:
+                if (not fname.startswith("<")
+                        and not fname.startswith("ipython-input-")
+                        and utils_dir not in Path(fname).resolve().parents):
+                    return str(project_root / "logs" / Path(fname).stem)
 
             frame = frame.f_back
     finally:
         del frame   # avoid reference cycle
 
     return str(project_root / "logs" / "runs")
-
 
 # ── MixUp Utilities ──────────────────────────────────────────────────────────
 
@@ -116,7 +143,9 @@ def mixup_criterion(criterion, pred, y_a, y_b, lam):
 def train_one_epoch(
         model, loader, criterion, optimizer,
         scheduler, scaler, device, mixup_alpha=0.0,
-        step_scheduler_per_batch=True,
+        step_scheduler_per_batch=True, progress=False,
+        epoch=None, epochs=None, clip_grad_norm=1.0,
+        amp_dtype=torch.bfloat16,
 ):
     """
     Run one full training epoch with AMP and optional MixUp augmentation.
@@ -142,7 +171,20 @@ def train_one_epoch(
     n_batches = 0
     use_mixup = mixup_alpha > 0.0
 
-    for inputs, labels in loader:
+    desc = "Train"
+    if epoch is not None and epochs is not None:
+        desc = f"Train {epoch + 1}/{epochs}"
+
+    batches = _progress_iter(
+        loader,
+        enabled=progress,
+        total=len(loader),
+        desc=desc,
+        leave=False,
+        dynamic_ncols=True,
+    )
+
+    for inputs, labels in batches:
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
 
@@ -151,28 +193,46 @@ def train_one_epoch(
                 inputs, labels, alpha=mixup_alpha, device=device
             )
 
-        with torch.autocast(device_type='cuda', dtype=torch.float16):
+        with torch.autocast(device_type='cuda', dtype=amp_dtype):
             outputs = model(inputs)
             if use_mixup:
                 loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)
             else:
                 loss = criterion(outputs, labels)
 
+        # Check if the scaler is active and record the scale before stepping
+        prev_scale = scaler.get_scale() if (scaler is not None and hasattr(scaler, 'get_scale')) else None
+
         scaler.scale(loss).backward()
+        if clip_grad_norm is not None and clip_grad_norm > 0:
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm)
         scaler.step(optimizer)
         scaler.update()
 
         # Step scheduler per mini-batch if requested
         if scheduler is not None and step_scheduler_per_batch:
-            scheduler.step()
+            # If the scaler decreased the scale, it indicates a gradient overflow occurred,
+            # meaning the optimizer step was skipped. We avoid stepping the scheduler
+            # in this batch to keep the learning rate schedule in sync with weight updates
+            # and prevent PyTorch's "Detected call of lr_scheduler.step() before optimizer.step()" warning.
+            skip_step = False
+            if scaler is not None and prev_scale is not None:
+                skip_step = scaler.get_scale() < prev_scale
+
+            if not skip_step:
+                scheduler.step()
 
         epoch_loss += loss.item()
         n_batches += 1
+        if progress and hasattr(batches, "set_postfix"):
+            current_lr = scheduler.get_last_lr()[0] if scheduler is not None else optimizer.param_groups[0]["lr"]
+            batches.set_postfix(loss=f"{epoch_loss / n_batches:.4f}", lr=f"{current_lr:.2e}")
 
     return epoch_loss / n_batches
 
 
-def evaluate(model, loader, criterion, device):
+def evaluate(model, loader, criterion, device, amp_dtype=torch.bfloat16):
     """
     Evaluate model on a dataset (validation or test).
 
@@ -181,6 +241,7 @@ def evaluate(model, loader, criterion, device):
         loader: DataLoader for evaluation.
         criterion: Loss function.
         device: Target device.
+        amp_dtype: Data type for AMP autocast (default: torch.bfloat16).
 
     Returns:
         (avg_loss, accuracy_pct): Tuple of average loss and accuracy as a percentage.
@@ -193,7 +254,7 @@ def evaluate(model, loader, criterion, device):
     with torch.no_grad():
         for imgs, labels in loader:
             imgs, labels = imgs.to(device), labels.to(device)
-            with torch.autocast(device_type='cuda', dtype=torch.float16):
+            with torch.autocast(device_type='cuda', dtype=amp_dtype):
                 outputs = model(imgs)
                 total_loss += criterion(outputs, labels).item()
             _, predicted = torch.max(outputs, 1)
@@ -252,6 +313,7 @@ def fit(
         device, epochs, checkpoint=None,
         mixup_alpha=0.0, step_scheduler_per_batch=True,
         log=False, log_dir=None,
+        resume_from_checkpoint=False, progress=False,
 ):
     """
     Full training loop with per-epoch logging, validation, and optional
@@ -291,7 +353,7 @@ def fit(
         from .logger import RunLogger
         resolved_log_dir = log_dir if log_dir is not None else _caller_log_dir()
         # verbose=False: fit() already prints per-epoch lines; logger records silently
-        logger = RunLogger(log_dir=resolved_log_dir, verbose=False)
+        logger = RunLogger(log_dir=resolved_log_dir, verbose=True)
         config = {
             "model":       type(model).__name__,
             "optimizer":   type(optimizer).__name__,
@@ -308,13 +370,28 @@ def fit(
     train_losses, val_losses, val_accuracies = [], [], []
     total_start = time.time()
 
-    for epoch in range(epochs):
+    start_epoch = 0
+    if resume_from_checkpoint and checkpoint is not None:
+        try:
+            start_epoch = checkpoint.resume_training(optimizer, scheduler, scaler)
+        except FileNotFoundError as e:
+            print(f"[Warning] {e} Starting from epoch 0.")
+
+    if start_epoch >= epochs:
+        print(
+            f"[Info] Checkpoint already reached epoch {start_epoch}/{epochs}; "
+            "no training epochs will run. Set resume_from_checkpoint=False for "
+            "a fresh run, or increase epochs with a matching scheduler to continue."
+        )
+
+    for epoch in range(start_epoch, epochs):
         start_time = time.time()
 
         # Train
         avg_train_loss = train_one_epoch(
             model, trainloader, criterion, optimizer, scheduler, scaler,
             device, mixup_alpha=mixup_alpha, step_scheduler_per_batch=step_scheduler_per_batch,
+            progress=progress, epoch=epoch, epochs=epochs,
         )
         train_losses.append(avg_train_loss)
 
@@ -340,7 +417,7 @@ def fit(
                 epoch,
                 train_loss=avg_train_loss,
                 val_loss=avg_val_loss,
-                val_acc=val_acc,
+                val_metric=val_acc,
                 lr=current_lr,
                 epoch_time=elapsed,
             )
@@ -356,12 +433,15 @@ def fit(
 
     total_minutes = (time.time() - total_start) / 60
     print(f'\nFinished Training in {total_minutes:.2f} minutes')
+    best = None
     if checkpoint is not None:
-        print(f'Best Validation Accuracy: {checkpoint.best_score:.2f}%')
+        best = checkpoint.best_score
+        if best is None or not math.isfinite(float(best)):
+            best = 0.0
+        print(f'Best Validation Accuracy: {best:.2f}%')
 
     # Finalise logger
     if logger is not None:
-        best = checkpoint.best_score if checkpoint is not None else None
-        logger.finish(best_val_acc=best)
+        logger.finish(best_val_metric=best)
 
     return train_losses, val_losses, val_accuracies

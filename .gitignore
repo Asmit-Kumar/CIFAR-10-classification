@@ -9,6 +9,7 @@ venv.bak/
 # PyCharm/IDE
 .idea/
 .vscode/
+.gemini/
 
 # Python
 __pycache__/
