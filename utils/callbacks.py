@@ -77,7 +77,9 @@ class ModelCheckpoint:
         if self.mode == 'min':
             self.best_score = float('inf')
         elif self.mode == 'max':
-            self.best_score = float('-inf')
+            # Accuracy-like metrics have a natural floor of 0.0. This also
+            # avoids reporting "-inf" before any validation metric is seen.
+            self.best_score = 0.0
         else:
             raise ValueError("mode must be 'min' or 'max'")
 
@@ -95,9 +97,20 @@ class ModelCheckpoint:
         Returns:
             True if a new best was found.
         """
-        # 1. Crash Protection: Save the full training state every epoch
+        # 1. Check whether this epoch produced a new best score.
+        if self.mode == 'min':
+            is_best = current_score < self.best_score
+        else:
+            is_best = current_score > self.best_score
+
+        if is_best:
+            self.best_score = current_score
+
+        # 2. Crash Protection: Save the full training state every epoch
         checkpoint = {
             'epoch': epoch,
+            'mode': self.mode,
+            'best_score': self.best_score,
             'model_state': self.model.state_dict(),
         }
         if optimizer is not None:
@@ -109,14 +122,8 @@ class ModelCheckpoint:
 
         torch.save(checkpoint, self.checkpoint_path)
 
-        # 2. Save Best Model
-        if self.mode == 'min':
-            is_best = current_score < self.best_score
-        else:
-            is_best = current_score > self.best_score
-
+        # 3. Save Best Model
         if is_best:
-            self.best_score = current_score
             torch.save(self.model.state_dict(), self.best_model_path)
             if self.verbose:
                 print(f"[ModelCheckpoint] New best ({self.mode}): {current_score:.4f} — saved to {self.best_model_path}")
@@ -151,6 +158,14 @@ class ModelCheckpoint:
             )
         device = "cuda" if torch.cuda.is_available() else "cpu"
         ckpt = torch.load(self.checkpoint_path, map_location=device, weights_only=False)
+
+        ckpt_mode = ckpt.get('mode')
+        if ckpt_mode is not None and ckpt_mode != self.mode:
+            raise ValueError(
+                f"Checkpoint mode '{ckpt_mode}' does not match current mode '{self.mode}'."
+            )
+        if ckpt.get('best_score') is not None:
+            self.best_score = float(ckpt['best_score'])
 
         self.model.load_state_dict(ckpt['model_state'])
         if optimizer is not None and 'optimizer_state' in ckpt:

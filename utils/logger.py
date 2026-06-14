@@ -1,5 +1,5 @@
 """
-RunLogger — Lightweight experiment tracker for CIFAR-10 / CIFAR-100.
+RunLogger — Lightweight experiment tracker for Super-Resolution / general use.
 
 Each run is saved as its own JSON file inside a log directory:
 
@@ -12,14 +12,15 @@ Usage (via fit()):
 
 Usage (standalone):
     logger = RunLogger(log_dir="logs/my_experiment")
-    logger.start(config={"model": "ResNet34", "lr": 3e-4})
+    logger.start(config={"model": "SRCNN", "lr": 1e-4})
     for epoch in range(epochs):
-        logger.log_epoch(epoch, train_loss=tl, val_loss=vl, val_acc=va, lr=lr)
+        logger.log_epoch(epoch, train_loss=tl, val_loss=vl, val_metric=psnr, lr=lr)
     logger.finish()
     logger.summary()
 """
 
 import json
+import math
 import time
 from datetime import datetime
 from pathlib import Path
@@ -43,10 +44,11 @@ class RunLogger:
         run_name: str | None = None,
         log_dir: str = "logs/runs",
         verbose: bool = True,
+        metric_unit: str = "%",
     ):
         self._run_name_override = run_name   # None → auto-generate in start()
         self.run_name = run_name or "(pending)"
-        
+
         # Centralize relative logs under project root
         log_path = Path(log_dir)
         if not log_path.is_absolute() and log_path.parts and log_path.parts[0] == "logs":
@@ -56,11 +58,13 @@ class RunLogger:
             self.log_dir = log_path
 
         self.verbose = verbose
+        self.metric_unit = metric_unit
 
         # Current run state
         self._run: dict = {}
         self._epoch_metrics: list[dict] = []
         self._run_start: float = 0.0
+        self._best_val_metric: float | None = None   # tracks running best for ★ marker
 
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -81,6 +85,7 @@ class RunLogger:
         """
         self._epoch_metrics = []
         self._run_start = time.time()
+        self._best_val_metric = None   # reset best tracker for new run
         cfg = config or {}
 
         # Auto-generate a unique, timestamped name
@@ -91,13 +96,13 @@ class RunLogger:
             self.run_name = f"{model_tag}_{ts}"
 
         self._run = {
-            "run_name":       self.run_name,
-            "started_at":     datetime.now().isoformat(timespec="seconds"),
-            "config":         cfg,
-            "epochs":         [],    # filled by log_epoch
-            "best_val_acc":   None,  # filled by finish
-            "total_time_min": None,  # filled by finish
-            "status":         "running",
+            "run_name":          self.run_name,
+            "started_at":        datetime.now().isoformat(timespec="seconds"),
+            "config":            cfg,
+            "epochs":            [],    # filled by log_epoch
+            "best_val_metric":   None,  # filled by finish
+            "total_time_min":    None,  # filled by finish
+            "status":            "running",
         }
 
         if self.verbose:
@@ -109,62 +114,81 @@ class RunLogger:
         epoch: int,
         train_loss: float,
         val_loss: float,
-        val_acc: float,
+        val_metric: float,
         lr: float,
         epoch_time: float | None = None,
+        metric_label: str = "val_metric",
+        metric_unit: str | None = None,
         **extra,
     ) -> None:
         """
         Record metrics for a single epoch.
 
         Args:
-            epoch:      0-based epoch index.
-            train_loss: Average training loss for this epoch.
-            val_loss:   Average validation loss for this epoch.
-            val_acc:    Validation accuracy (%).
-            lr:         Current learning rate (last param group).
-            epoch_time: Wall-clock seconds for the epoch.
-            **extra:    Any additional scalar metrics to store.
+            epoch:        0-based epoch index.
+            train_loss:   Average training loss for this epoch.
+            val_loss:     Average validation loss for this epoch.
+            val_metric:   Primary validation metric (e.g. PSNR in dB).
+            lr:           Current learning rate (last param group).
+            epoch_time:   Wall-clock seconds for the epoch.
+            metric_label: Display name for the metric column (default: 'val_metric').
+            metric_unit:  Unit string shown after the value (default: 'dB').
+            **extra:      Any additional scalar metrics to store.
         """
+        # Detect a new best (higher is better)
+        is_best = (
+            self._best_val_metric is None
+            or val_metric > self._best_val_metric
+        )
+        if is_best:
+            self._best_val_metric = val_metric
+
         entry = {
             "epoch":      epoch + 1,   # 1-based for readability
             "train_loss": round(train_loss, 6),
             "val_loss":   round(val_loss, 6),
-            "val_acc":    round(val_acc, 4),
+            "val_metric": round(val_metric, 4),
             "lr":         round(lr, 8),
             "epoch_time": round(epoch_time, 2) if epoch_time is not None else None,
+            "is_best":    is_best,
         }
         entry.update({k: round(v, 6) if isinstance(v, float) else v
                       for k, v in extra.items()})
         self._epoch_metrics.append(entry)
 
         if self.verbose:
-            t_str = f"  ⏱ {epoch_time:.1f}s" if epoch_time else ""
+            t_str  = f"  ⏱ {epoch_time:.1f}s" if epoch_time else ""
+            best_marker = "  ★ NEW BEST" if is_best else ""
+            unit = metric_unit if metric_unit is not None else self.metric_unit
             print(
                 f"[RunLogger] Epoch {epoch + 1:3d} | "
                 f"train_loss={train_loss:.4f}  val_loss={val_loss:.4f}  "
-                f"val_acc={val_acc:.2f}%  lr={lr:.2e}{t_str}"
+                f"{metric_label}={val_metric:.2f} {unit}  "
+                f"lr={lr:.2e}{t_str}{best_marker}"
             )
 
-    def finish(self, best_val_acc: float | None = None) -> None:
+    def finish(self, best_val_metric: float | None = None) -> None:
         """
         Finalise the run and write it to its own JSON file.
 
         Args:
-            best_val_acc: Best validation accuracy (pulled from ModelCheckpoint
-                          when called via ``fit()``; computed from epochs if None).
+            best_val_metric: Best validation metric (pulled from ModelCheckpoint
+                             when called via ``fit()``; computed from epochs if None).
         """
         total_time = (time.time() - self._run_start) / 60.0
 
-        if best_val_acc is None and self._epoch_metrics:
-            best_val_acc = max(e["val_acc"] for e in self._epoch_metrics)
+        if best_val_metric is None and self._epoch_metrics:
+            best_val_metric = max(e["val_metric"] for e in self._epoch_metrics)
+
+        if best_val_metric is None or not math.isfinite(float(best_val_metric)):
+            best_val_metric = 0.0
 
         self._run.update({
-            "epochs":         self._epoch_metrics,
-            "best_val_acc":   round(best_val_acc, 4) if best_val_acc else None,
-            "total_time_min": round(total_time, 2),
-            "status":         "finished",
-            "finished_at":    datetime.now().isoformat(timespec="seconds"),
+            "epochs":          self._epoch_metrics,
+            "best_val_metric": round(best_val_metric, 4),
+            "total_time_min":  round(total_time, 2),
+            "status":          "finished",
+            "finished_at":     datetime.now().isoformat(timespec="seconds"),
         })
 
         self._save_run()
@@ -173,7 +197,7 @@ class RunLogger:
             print(
                 f"[RunLogger] ■  Run '{self.run_name}' finished — "
                 f"{len(self._epoch_metrics)} epochs in {total_time:.1f} min  |  "
-                f"best val acc: {best_val_acc:.2f}%"
+                f"best val metric: {best_val_metric:.4f} {self.metric_unit}"
             )
 
     def summary(self, top_n: int = 10) -> None:
@@ -181,7 +205,7 @@ class RunLogger:
         Print a ranked comparison table of all finished runs in ``log_dir``.
 
         Args:
-            top_n: Maximum number of runs to display (sorted by best val acc).
+            top_n: Maximum number of runs to display (sorted by best val metric).
         """
         runs = self._load_all_runs()
         if not runs:
@@ -189,11 +213,11 @@ class RunLogger:
             return
 
         finished = [r for r in runs if r.get("status") == "finished"]
-        finished.sort(key=lambda r: r.get("best_val_acc") or 0, reverse=True)
+        finished.sort(key=lambda r: r.get("best_val_metric") or 0, reverse=True)
         display = finished[:top_n]
 
-        col_w = [28, 10, 12, 10, 7]
-        headers = ["Run Name", "Best Acc", "Time (min)", "Epochs", "LR"]
+        col_w = [28, 12, 12, 10, 7]
+        headers = ["Run Name", f"Best ({self.metric_unit})", "Time (min)", "Epochs", "LR"]
         sep = "─" * (sum(col_w) + len(headers) * 2)
         print(f"\n{'Run Summary':^{len(sep)}}")
         print(sep)
@@ -207,7 +231,7 @@ class RunLogger:
             lr_str = f"{lr:.0e}" if isinstance(lr, float) else str(lr)
             vals = [
                 r.get("run_name", "—")[:col_w[0]],
-                f"{r.get('best_val_acc', 0):.2f}%",
+                f"{r.get('best_val_metric', 0):.4f} {self.metric_unit}",
                 f"{r.get('total_time_min', 0):.1f}",
                 str(n_epochs),
                 lr_str,
@@ -245,7 +269,7 @@ class RunLogger:
             run_name: Run to load. Defaults to the current in-progress run.
 
         Returns:
-            Dict with keys: 'train_loss', 'val_loss', 'val_acc', 'lr', 'epoch_time'.
+            Dict with keys: 'train_loss', 'val_loss', 'val_metric', 'lr', 'epoch_time'.
         """
         if run_name is None:
             epochs = self._epoch_metrics
@@ -255,7 +279,7 @@ class RunLogger:
                 raise KeyError(f"Run '{run_name}' not found in '{self.log_dir}'")
             epochs = run.get("epochs", [])
 
-        keys = ["train_loss", "val_loss", "val_acc", "lr", "epoch_time"]
+        keys = ["train_loss", "val_loss", "val_metric", "lr", "epoch_time"]
         return {k: [e.get(k) for e in epochs] for k in keys}
 
     # ── Internal helpers ──────────────────────────────────────────────────────

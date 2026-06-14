@@ -20,6 +20,7 @@ from .dataset import (
     # DataLoader factories
     get_cifar10_transforms, get_cifar10_dataloaders,
     get_cifar100_transforms, get_cifar100_dataloaders,
+    get_imagenet100_transforms, get_imagenet100_dataloaders,
 )
 from .training import train_one_epoch, evaluate, test_accuracy, fit
 from .plotting import plot_training_curves, imshow, show_sample_batch

@@ -1,139 +1,138 @@
-# CIFAR-10 / CIFAR-100 Classification with PyTorch
+# Image Classification with PyTorch
 
-A collection of deep learning experiments progressing from a plain CNN to custom
-EfficientNet-style architectures, evaluated on both **CIFAR-10** (10 classes) and
-**CIFAR-100** (100 classes). The primary goal is learning — each notebook introduces
-a new concept, architectural improvement, or training technique.
+A progressive study in image classification — building from first principles to competitive deep learning, evaluated across three datasets of increasing complexity and scale.
 
----
+| Dataset | Classes | Resolution | Training Set | Best Test Acc |
+|---------|---------|-----------|-------------|---------------|
+| [**CIFAR-10**](notebooks/cifar_10/) | 10 | 32×32 | 50k | **97.43%** |
+| [**CIFAR-100**](notebooks/cifar_100/) | 100 | 32×32 | 50k | **86.25%** |
+| [**ImageNet-100**](notebooks/imagenet_100/) | 100 | 224×224 native | 130k | **89.37%** |
 
-## CIFAR-10 Results
-
-| # | Notebook | Architecture | Params | Val Acc | Epochs |
-|---|----------|-------------|--------|---------|--------|
-| 1 | `01_plain_cnn.ipynb` | Custom 4-layer CNN | ~958k | 89.82% | 80 |
-| 2 | `02_simple_resnet.ipynb` | SimpleResNet (4 stages) | ~4.9M | 93.77% | 80 |
-| 3 | `03_resnet18.ipynb` | Custom ResNet-18 | ~11.2M | 95.22% | 120 |
-| 4 | `04_resnet34_transfer.ipynb` | ResNet-34 (ImageNet TL) | ~21.3M | 97.43% | 45 |
+Each notebook is self-contained and introduces one new concept — a new architecture, a training technique, or a systematic experiment — building understanding layer by layer.
 
 ---
 
-## CIFAR-100 Results
+## CIFAR-10 — [4 notebooks](notebooks/cifar_10/)
 
-| # | Notebook | Architecture | Strategy | Params | Val Acc | Test Acc | Epochs |
-|---|----------|-------------|----------|--------|---------|----------|--------|
-| 1 | `02_simple_resnet_100.ipynb` | SimpleResNet | From scratch | ~4.9M | 75.78% | 74.59% | 120 |
-| 2 | `03_resnet18_100.ipynb` | ResNet-18 | From scratch | ~11.2M | 74.15% | 73.42% | 100 |
-| 3 | `04_resnet34_transfer_100.ipynb` | ResNet-34 (ImageNet TL) | Transfer | ~21.3M | 85.50% | 85.03% | 120 |
-| 4 | `05_resnet50_transfer_100.ipynb` | ResNet-50 (ImageNet TL) | Transfer | ~23.5M | **86.64%**| TBD | 60 |
-| 5 | `05_wideresnet28_100.ipynb` | WideResNet-28-4 | From scratch | ~5.9M | 78.80% | 78.68% | 200 |
-| 6 | `06_efficientnet_100.ipynb` | Custom EfficientNet-B0-like | From scratch | ~5.3M | 78.09% | 77.83% | 120 |
-| 7 | `06_resnet50_twophase_100.ipynb` | ResNet-50 (ImageNet TL) | Two-Phase TL | ~23.5M | 86.28% | 86.25% | 60 |
-| 8 | `07_efficientnet-b3_100.ipynb` | Custom EfficientNet-B3-like | From scratch | ~10.8M | 78.39% | 77.60% | 120 |
-| 9 | `07_efficientnet_b0_transfer_100.ipynb` | EfficientNet-B0 (ImageNet TL) | Transfer | ~4.0M | 86.10% | 85.75% | 40 |
+Starting point: 10 coarse classes, 32×32 images. The goal was establishing a solid baseline progression and understanding the impact of architecture depth and transfer learning before scaling up.
 
-### EfficientNet-B0 LR Experiments (notebook 06)
+| # | Architecture | Val Acc | Epochs |
+|---|-------------|---------|--------|
+| 1 | Custom 4-layer CNN | 89.82% | 80 |
+| 2 | SimpleResNet (4 stages, custom) | 93.77% | 80 |
+| 3 | Custom ResNet-18 | 95.22% | 120 |
+| 4 | ResNet-34 (ImageNet pretrained) | **97.43%** | 45 |
 
-All runs: `SGD + OneCycleLR (max_lr=0.1, pct_start=10%) + MixUp(α=0.2) + label_smoothing=0.1`
+> Full development history on the [`v1` branch](../../tree/v1).
 
-| Run | Notes | Best Val Acc |
-|-----|-------|-------------|
-| v1 | max_lr=0.1, 120 ep | 78.09% ✓ |
-| v2 | max_lr=0.04, longer warmup | 74.28% |
-| v3 | CosineAnnealingLR + MixUp | 75.36% |
-| v4 | OneCycleLR, scheduler bug (stepped/epoch not /batch) | 73.46% |
-| v5 | 150 epochs (CosineAnnealingLR, no MixUp) | 77.31% |
+---
 
-**Key finding:** OneCycleLR **must** be stepped per batch (`step_scheduler_per_batch=True`).
-Stepping per epoch leaves the LR stuck at the initial value (~0.01) for the entire run.
+## CIFAR-100 — [13 notebooks](notebooks/cifar_100/)
 
-### From-Scratch Ceiling on CIFAR-100
+The real challenge: 100 fine-grained classes with only **500 training samples per class**. The central question was *where does the ceiling lie for from-scratch training, and what breaks through it?*
 
-CIFAR-100 has only **500 samples per class**. The experiments confirm a hard ceiling:
+| # | Architecture | Strategy | Val Acc | Test Acc |
+|---|-------------|----------|---------|----------|
+| 1 | SimpleResNet (custom) | Scratch | 75.78% | 74.59% |
+| 2 | Custom ResNet-18 | Scratch | 74.15% | 73.42% |
+| 3 | ResNet-34 (ImageNet pretrained) | Transfer | 85.50% | 85.03% |
+| 4 | ResNet-50 (ImageNet pretrained) | Transfer | **86.64%** | — |
+| 5 | WideResNet-28-4 | Scratch | 78.80% | 78.68% |
+| 6 | EfficientNet-B0 (ImageNet pretrained) | Transfer | 86.10% | 85.75% |
+| 7 | ResNet-50 | Two-Phase Transfer | 86.28% | 86.25% |
+| 8 | Custom EfficientNet-B0 | Scratch | 78.09% | 77.83% |
+| 9 | Custom EfficientNet-B3 | Scratch | 78.39% | 77.60% |
+| 10 | ResNet-34 — interpolation study | Transfer | 85.77% | 85.89% |
 
-- **EfficientNet-B0 → B3 (scratch): both ~78%** — scaling the architecture provided
-  almost no gain, confirming the bottleneck is data, not model capacity.
-- **Transfer learning breaks the ceiling** — ResNet-34 (ImageNet) reaches ~84%
-  because pretrained features learned from 1.2M+ images transfer to fine-grained
-  CIFAR-100 classes.
-- **Augmentation pipeline** (RandAugment + RandomErasing) is already applied in all
-  CIFAR-100 runs — increasing augmentation strength did not push past 78%.
+**Key finding:** Scaling from EfficientNet-B0 → B3 from scratch yields almost no gain (~78% both). The bottleneck is data, not model capacity. Transfer learning consistently breaks the ceiling. Notebook 10 systematically compares Bilinear / Bicubic / Lanczos upscaling on CIFAR-100 images before a pretrained ResNet-34.
+
+---
+
+## ImageNet-100 — [4 notebooks](notebooks/imagenet_100/)
+
+Moving to full-resolution (224×224) data to eliminate the CIFAR resolution bottleneck entirely. Dataset: [`ilee0022/ImageNet100`](https://huggingface.co/datasets/ilee0022/ImageNet100) — 100 ImageNet classes, 130k train / 5k val / 13k test.
+
+| # | Architecture | Strategy | Val Acc | Test Acc |
+|---|-------------|----------|---------|----------|
+| 1 | ResNet-34 (ImageNet pretrained) | Transfer | 85.90% | **89.37%** |
+| 2 | ResNet-50 (custom) | Scratch | 85.50% | 88.34% |
+| 3 | ResNeXt-50 32×4d (custom) | Scratch | — | — |
+| 4 | ConvNeXt-Tiny (custom, inline) | Scratch | 82.82% | 86.18% |
 
 ---
 
 ## Project Structure
 
 ```
-CIFAR_10/
-├── notebooks/          # Progressively complex experiments
-│   ├── 01_plain_cnn.ipynb                # CIFAR-10: baseline CNN
-│   ├── 02_simple_resnet.ipynb            # CIFAR-10: SimpleResNet
-│   ├── 02_simple_resnet_100.ipynb        # CIFAR-100: SimpleResNet
-│   ├── 03_resnet18.ipynb                 # CIFAR-10: custom ResNet-18
-│   ├── 03_resnet18_100.ipynb             # CIFAR-100: ResNet-18
-│   ├── 04_resnet34_transfer.ipynb        # CIFAR-10: ResNet-34 (TL)
-│   ├── 04_resnet34_transfer_100.ipynb    # CIFAR-100: ResNet-34 (TL)
-│   ├── 05_resnet50_transfer_100.ipynb    # CIFAR-100: ResNet-50 (TL)
-│   ├── 05_wideresnet28_100.ipynb         # CIFAR-100: WideResNet-28-4
-│   ├── 06_efficientnet_100.ipynb         # CIFAR-100: custom EfficientNet-B0-like
-│   ├── 06_resnet50_twophase_100.ipynb    # CIFAR-100: ResNet-50 two-phase TL
-│   ├── 07_efficientnet-b3_100.ipynb      # CIFAR-100: custom EfficientNet-B3-like
-│   └── 07_efficientnet_b0_transfer_100.ipynb  # CIFAR-100: EfficientNet-B0 (TL)
-├── utils/              # Reusable shared utilities
-│   ├── __init__.py        # Package exports
-│   ├── callbacks.py       # EarlyStopping, ModelCheckpoint
-│   ├── dataset.py         # Dataloaders & transforms (CIFAR-10 & CIFAR-100)
-│   ├── training.py        # fit(), evaluate(), test_accuracy()
-│   ├── plotting.py        # plot_training_curves(), show_sample_batch()
-│   └── logger.py          # JSON experiment tracker (RunLogger)
-├── data/               # Downloaded datasets (CIFAR-10 & CIFAR-100)
-├── checkpoint/         # Saved model weights (.pth)
-├── archive/            # Legacy notebooks and backups
+├── notebooks/
+│   ├── cifar_10/           # 4 notebooks — CNN → ResNet-18 → ResNet-34 TL
+│   │   └── README.md
+│   ├── cifar_100/          # 13 notebooks — scratch ceiling, TL, EfficientNet, interpolation
+│   │   └── README.md
+│   └── imagenet_100/       # 4 notebooks — full-res, ConvNeXt
+│       └── README.md
+├── utils/                  # Shared training utilities (all datasets)
+│   ├── dataset.py          # Dataloaders & transforms for CIFAR-10/100 & ImageNet-100
+│   ├── training.py         # fit(), evaluate(), test_accuracy()
+│   ├── callbacks.py        # EarlyStopping, ModelCheckpoint
+│   ├── plotting.py         # Training curves, image visualization
+│   └── logger.py           # RunLogger — lightweight JSON experiment tracker
+├── data/                   # Datasets (gitignored)
+├── checkpoint/             # Saved model weights (gitignored)
+├── logs/                   # Training run logs (gitignored)
 ├── requirements.txt
 └── README.md
 ```
 
 ---
 
-## Augmentation Strategy
+## Training Pipeline
 
-| Dataset | Augmentation |
-|---------|-------------|
-| CIFAR-10 | `AutoAugment(CIFAR10)` + `RandomErasing(p=0.25)` |
-| CIFAR-100 | `RandAugment(ops=2, mag=9)` + `RandomErasing(p=0.25)` |
+All notebooks share the same structure:
 
-`AutoAugment(CIFAR10)` is intentionally **not** used for CIFAR-100 — its policy is tuned
-for 10 coarse classes and degrades on fine-grained 100-class structure.
+1. Imports → device setup → data loading
+2. Model definition + parameter count
+3. Optimizer / Scheduler / AMP `GradScaler` / `ModelCheckpoint` setup
+4. `fit()` loop — per-epoch train/val with crash-resume support
+5. `restore_best_weights()` → final test evaluation
+6. `plot_training_curves()`
+
+**Scheduler convention:**
+- From-scratch: `OneCycleLR` stepped **per batch**
+- Transfer learning: `CosineAnnealingLR` stepped per epoch
 
 ---
 
-## Training Pipeline
+## Key Findings
 
-All notebooks follow the same flow:
-1. Imports → Device setup → Data loading
-2. Model definition + parameter count
-3. Optimizer / Scheduler / AMP (`GradScaler`) / Checkpoint setup
-4. `fit()` training loop with per-epoch validation
-5. `restore_best_weights()` → Test evaluation
-6. `plot_training_curves()`
+| # | Finding |
+|---|---------|
+| 1 | **Data, not capacity, is the CIFAR-100 bottleneck.** B0 → B3 EfficientNet from scratch: ~78% both. |
+| 2 | **Transfer learning consistently breaks the ceiling** — jumping from ~78% to ~86% on CIFAR-100. |
+| 3 | **OneCycleLR must step per batch.** Per-epoch stepping leaves LR stuck near its initial value. |
+| 4 | **Interpolation mode matters less than expected.** Lanczos > Bicubic > Bilinear on CIFAR upscaling, but the gaps are small (~0.5% test acc). |
 
-**Scheduler policy:**
-- From-scratch models: `OneCycleLR` — stepped **per batch**
-- Transfer learning: `CosineAnnealingLR` — stepped per epoch
+---
+
+## Augmentation
+
+| Dataset | Strategy |
+|---------|---------|
+| CIFAR-10 | `AutoAugment(CIFAR10)` + `RandomErasing(p=0.25)` |
+| CIFAR-100 | `RandAugment(ops=2, mag=9)` + `RandomErasing(p=0.25)` |
+| ImageNet-100 | `RandomResizedCrop(224)` + `RandAugment(ops=2, mag=9)` + `RandomErasing(p=0.25)` |
+
+> `AutoAugment(CIFAR10)` is intentionally avoided on CIFAR-100 — its policy is tuned for 10 coarse classes and hurts fine-grained 100-class performance.
 
 ---
 
 ## Requirements
 
-- Python 3.11+
-- PyTorch 2.x (CUDA)
-- torchvision, matplotlib, numpy
-
 ```bash
 pip install -r requirements.txt
 ```
 
-## Hardware
+- Python 3.11+, PyTorch 2.x with CUDA, torchvision, matplotlib, numpy  
+- ImageNet-100 additionally requires `datasets` and `huggingface-hub`
 
-Developed and tested on **NVIDIA RTX 5070 Ti** with CUDA.  
-`torch.compile` is disabled — Triton is unsupported on native Windows.
+**Hardware:** Developed on an **NVIDIA RTX 5070 Ti**. `torch.compile` is disabled — Triton is not supported on native Windows.
