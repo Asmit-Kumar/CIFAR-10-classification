@@ -14,7 +14,7 @@ Moving beyond CIFAR's 32×32 constraint to real-world high-resolution data. Thes
 |---|----------|-------------|----------|--------|---------|----------|--------|
 | 1 | `01_resnet34_transfer.ipynb` | ResNet-34 (ImageNet pretrained) | Transfer | ~21.3M | 85.90% | **89.37%** | 30 |
 | 2 | `02_resnet50.ipynb` | ResNet-50 (custom) | Scratch | ~23.7M | 85.50% | 88.34% | 90 |
-| 3 | `03_resnext50.ipynb` | ResNeXt-50 32×4d (custom) | Scratch | ~23.2M | — | — | 90 |
+| 3 | `03_resnext50.ipynb` | ResNeXt-50 32×4d (custom) | Scratch | ~23.2M | 86.66% | 88.90% | 90 |
 | 4 | `04_convnext_tiny.ipynb` | ConvNeXt-Tiny (custom, inline) | Scratch | ~27.9M | 82.82% | 86.18% | 90 |
 
 ---

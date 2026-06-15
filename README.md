@@ -36,7 +36,7 @@ The real challenge: 100 fine-grained classes with only **500 training samples pe
 | 1 | SimpleResNet (custom) | Scratch | 75.78% | 74.59% |
 | 2 | Custom ResNet-18 | Scratch | 74.15% | 73.42% |
 | 3 | ResNet-34 (ImageNet pretrained) | Transfer | 85.50% | 85.03% |
-| 4 | ResNet-50 (ImageNet pretrained) | Transfer | **86.64%** | — |
+| 4 | ResNet-50 (ImageNet pretrained) | Transfer | **86.64%** | 86.52% |
 | 5 | WideResNet-28-4 | Scratch | 78.80% | 78.68% |
 | 6 | EfficientNet-B0 (ImageNet pretrained) | Transfer | 86.10% | 85.75% |
 | 7 | ResNet-50 | Two-Phase Transfer | 86.28% | 86.25% |
@@ -56,7 +56,7 @@ Moving to full-resolution (224×224) data to eliminate the CIFAR resolution bott
 |---|-------------|----------|---------|----------|
 | 1 | ResNet-34 (ImageNet pretrained) | Transfer | 85.90% | **89.37%** |
 | 2 | ResNet-50 (custom) | Scratch | 85.50% | 88.34% |
-| 3 | ResNeXt-50 32×4d (custom) | Scratch | — | — |
+| 3 | ResNeXt-50 32×4d (custom) | Scratch | 86.66% | 88.90% |
 | 4 | ConvNeXt-Tiny (custom, inline) | Scratch | 82.82% | 86.18% |
 
 ---

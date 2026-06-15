@@ -14,7 +14,7 @@ The central challenge: with only 500 training samples per class, where does from
 | 2 | `02_resnet18.ipynb` | Custom ResNet-18 | Scratch | ~11.2M | 74.15% | 73.42% | 100 |
 | 3 | `03_resnet34_transfer.ipynb` | ResNet-34 (ImageNet pretrained) | Transfer | ~21.3M | 85.50% | 85.03% | 120 |
 | 4 | `04_resnet50.ipynb` | ResNet-50 (custom) | Scratch | ~23.5M | 79.26% | 79.19% | 90 |
-| 5 | `05_resnet50_transfer.ipynb` | ResNet-50 (ImageNet pretrained) | Transfer | ~23.5M | **86.64%** | — | 60 |
+| 5 | `05_resnet50_transfer.ipynb` | ResNet-50 (ImageNet pretrained) | Transfer | ~23.5M | **86.64%** | 86.52% | 60 |
 | 6 | `06_wideresnet28.ipynb` | WideResNet-28-4 | Scratch | ~5.9M | 78.80% | 78.68% | 200 |
 | 7 | `07_resnext50.ipynb` | ResNeXt-50 (custom) | Scratch | ~23.2M | 77.90% | 78.12% | 90 |
 | 8 | `08_efficientnet_b0.ipynb` | Custom EfficientNet-B0-like | Scratch | ~5.3M | 78.09% | 77.83% | 120 |
